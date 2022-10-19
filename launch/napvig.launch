@@ -1,0 +1,7 @@
+<?xml version="1.0"?>
+
+<launch>
+	<!-- Napvig core -->
+	<rosparam command="load" file="$(find napvig)/config/napvig.yaml" />
+	<node type="napvig" name="napvig" pkg="napvig" output="screen" required="true" />
+</launch>
