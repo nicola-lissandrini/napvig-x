@@ -35,5 +35,10 @@ add_executable (napvig
 	src/napvig.cpp
 	src/landscape.cpp
 	src/ros_conversions.cpp
+	src/policy/policy.cpp
+	src/policy/legacy.cpp
+	src/policy/predictive.cpp
+	src/policy/exploitative.cpp
+        src/policy/explorative.cpp
 )
 target_link_libraries (napvig dl ${catkin_LIBRARIES} ${TORCH_LIBRARIES} /usr/local/lib/liblietorch.so )

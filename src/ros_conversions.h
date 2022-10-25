@@ -14,5 +14,6 @@ void pose2ToPoseMsg (const lietorch::Pose2 &pose, geometry_msgs::Pose &poseMsg);
 
 void pointMsgToTorch (const geometry_msgs::Point &vectorMsg, torch::Tensor &tensor);
 void quaternionMsgToTorch (const geometry_msgs::Quaternion &quaternionMsg, torch::Tensor &tensor);
+void poseMsgToPose2 (const geometry_msgs::Pose &poseMsg, lietorch::Pose2 &pose2);
 
 #endif // ROS_CONVERSIONS_H

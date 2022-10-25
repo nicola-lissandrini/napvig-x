@@ -1,6 +1,7 @@
 #ifndef NAPVIGMODFLOW_H
 #define NAPVIGMODFLOW_H
 
+#include <memory>
 #include <torch/all.h>
 #include <nlib/nl_node.h>
 #include <lietorch/pose.h>
@@ -31,11 +32,13 @@ public:
 
 	void measuresTriggerSlot (const torch::Tensor &);
 	void odomSlot (const lietorch::Pose2 &odomFrame);
+	void targetSlot (const lietorch::Pose2 &targetFrame);
 
 private:
 	nlib::ReadyFlagsStr _flags;
 	lietorch::Pose2 _measuresFrame, _lastFrame;
-	nlib::Channel _toMeasuresFrameChannel, _toRobotFrameChannel;
+	lietorch::Pose2 _odomToRobotFrame, _robotToMeasuresFrame;
+	nlib::Channel _toMeasuresFrameChannel, _toRobotFrameChannel, _targetChannel;
 };
 
 
@@ -65,11 +68,17 @@ public:
 	void initParams (const nlib::NlParams &nlParams) override;
 	void setupNetwork () override;
 
-	bool followPolicySlot (const State &initialState);
+	Policy::ResultType followPolicySlot(const State &initialState);
+	void updateTarget (const lietorch::Pose2 &target);
 
 private:
+	template<class _Derived>
+	typename _Derived::Ptr derived () {
+		return std::dynamic_pointer_cast<_Derived> (_policy);
+	}
+
 	Policy::Ptr _policy;
-	nlib::Channel _commandChannel, _napvigChannel;
+	nlib::Channel _commandChannel, _napvigChannel, _historyChannel;
 };
 
 class NapvigModule : public nlib::NlModule
@@ -119,7 +128,9 @@ public:
 		OUTPUT_TENSOR_DEBUG_2,
 		OUTPUT_POSE_DEBUG,
 		OUTPUT_VALUES,
-		OUTPUT_GRADIENTS
+		OUTPUT_GRADIENTS,
+		OUTPUT_HISTORY,
+		OUTPUT_TARGET
 	};
 
 	ProcessOutputs (nlib::NlModFlow *modFlow, const std::vector<Policy::Ptr> &policies);
@@ -132,6 +143,8 @@ public:
 	void commandSlot (const torch::Tensor &command);
 	void debugValuesSlot (const torch::Tensor &values);
 	void debugGradientsSlot (const torch::Tensor &values);
+	void debugHistory (const torch::Tensor &history);
+	void targetSlot (const lietorch::Pose2 &target);
 
 private:
 	lietorch::Pose2 _toRobotFrame;
