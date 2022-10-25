@@ -17,6 +17,17 @@ class DisplayNode:
         
         self.draw ()
 
+    def history_callback (self, historyMsg: Float32MultiArray):
+        self.history = np.array (historyMsg.data[1:])
+        
+        if (len (historyMsg.layout.dim) > 2):
+            self.multi_history = True
+            self.history = np.reshape (self.history, (historyMsg.layout.dim[0].size, historyMsg.layout.dim[1].size, historyMsg.layout.dim[2].size))
+        else:
+            self.multi_history = False
+            self.history = np.reshape (self.history, (historyMsg.layout.dim[0].size, historyMsg.layout.dim[1].size))
+        
+
     def values_callback (self, valuesMsg: Float32MultiArray):
         values_data = np.array (valuesMsg.data[1:])
 
@@ -48,15 +59,22 @@ class DisplayNode:
         orientation_list = [pose.pose.orientation.x, pose.pose.orientation.y, pose.pose.orientation.z, pose.pose.orientation.w]
         (_, _, self.pose.theta) = euler_from_quaternion (orientation_list)
 
+    def target_callback (self, target_msg):
+        self.target = np.array (target_msg.data[1:])
+
     def __init__ (self):
         rospy.init_node ("display")
 
         self.fig = plt.figure ()
+        
         self.meas_sub = rospy.Subscriber ("/napvig/outputs/measures", Float32MultiArray, self.measures_callback, queue_size=1)
         self.values_sub = rospy.Subscriber ("/napvig/outputs/values", Float32MultiArray, self.values_callback, queue_size=1)
         self.gradients_sub = rospy.Subscriber ("/napvig/outputs/gradients", Float32MultiArray, self.gradients_callback, queue_size=1)
         self.pose_sub = rospy.Subscriber ("/napvig/outputs/pose_debug", PoseStamped, self.pose_callback, queue_size=1)
         self.command_sub = rospy.Subscriber (rospy.get_param ("/napvig/topics/pubs/command"), Pose2D, self.command_callback, queue_size=1)
+        self.target_sub = rospy.Subscriber ("/napvig/outputs/target_in_measures", Float32MultiArray, self.target_callback, queue_size=1)
+        self.target_history = rospy.Subscriber ("/napvig/outputs/history", Float32MultiArray, self.history_callback, queue_size=1)
+
         self.range_min = rospy.get_param ("/napvig/napvig/debug/output_range/min")
         self.range_max = rospy.get_param ("/napvig/napvig/debug/output_range/max")
         self.range_step = rospy.get_param ("/napvig/napvig/debug/output_range/step")
@@ -67,6 +85,9 @@ class DisplayNode:
         self.gradients = None
         self.command = None
         self.pose = None
+        self.target = None
+        self.history = None
+        self.multi_history = False
 
         plt.show ()
 
@@ -89,11 +110,23 @@ class DisplayNode:
         if (not self.meas_np is None):
             plt.scatter (self.meas_np[:, 0], self.meas_np[:, 1], 2.5, color="black")
 
-        if (not self.command is None):
+        if (not self.command is None and self.history is None):
             self.draw_turtle (self.command)
 
         if (not self.pose is None):
             self.draw_turtle (self.pose)
+
+        if (not self.target is None):
+            plt.scatter (self.target[0], self.target[1], 4, color="red")
+
+        if (not self.history is None):
+            if (self.multi_history):
+                for i in range(np.shape(self.history)[0]):
+                    plt.quiver (self.history[i,:,0], self.history[i,:,1], self.history[i,:,2], self.history[i,:,3])
+            else:
+                plt.quiver (self.history[:,0], self.history[:,1], self.history[:,2], self.history[:,3])
+            #plt.scatter (self.history[:,0], self.history[:,1], 4, color="blue")
+            
         
         plt.gca().set_xlim (self.range_min, self.range_max)
         plt.gca().set_ylim (self.range_min, self.range_max)

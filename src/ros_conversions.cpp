@@ -42,3 +42,35 @@ void quaternionMsgToTorch(const geometry_msgs::Quaternion &quaternionMsg, Tensor
 							quaternionMsg.z,
 							quaternionMsg.w}, torch::kFloat);
 }
+
+void poseMsgToPose2 (const geometry_msgs::Pose &poseMsg, lietorch::Pose2 &pose2)
+{
+	Tensor position, orientation;
+
+	pointMsgToTorch (poseMsg.position, position);
+	quaternionMsgToTorch (poseMsg.orientation, orientation);
+
+	lietorch::Quaternion quaternion(orientation);
+
+	pose2 = lietorch::Pose2 (position.slice(0,0,2), UnitComplex (quaternion.log ().coeffs[2].item().toFloat ()));
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

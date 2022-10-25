@@ -42,6 +42,7 @@ public:
 
 	torch::Tensor value (const torch::Tensor &p) const;
 	torch::Tensor gradient (const torch::Tensor &p) const;
+	float distToObstacles(const torch::Tensor &p) const;
 
 	bool invalid () const;
 	torch::Tensor setMeasures (const torch::Tensor &measures);

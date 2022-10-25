@@ -13,7 +13,7 @@ Tensor Smoother::evaluate (const Fcn &f, const Tensor &x) const
 	Tensor xVar = torch::normal (0., _params.radius,
 								{_params.samplesCount, _params.dim});
 	Tensor xEval = xVar + x.unsqueeze (1);
-
+	
 	return f(xEval).mean (1);
 }
 
@@ -23,7 +23,7 @@ Landscape::Landscape ()
 		return this->preSmoothValue (p);
 	};
 
-	_gradientLambda = [this] (const Tensor &p) -> Tensor {
+  _gradientLambda = [this] (const Tensor &p) -> Tensor {
 		return this->preSmoothGradient (p);
 	};
 }
@@ -89,6 +89,10 @@ Tensor Landscape::preSmoothGradient (const Tensor &p) const
 							   .reshape ({-1, _params.precision, L_DIM});
 
 	return collapsedDiff;// / (2 * _params.measureRadius * _params.measureRadius) * peak (collapsedDist).unsqueeze(2) * _smoothGain;
+}
+
+float Landscape::distToObstacles (const Tensor &p) const {
+	return (p - _measures).norm (2, 1).min ().item().toFloat ();
 }
 
 Tensor Landscape::setMeasures (const Tensor &measures) {

@@ -24,6 +24,7 @@ NapvigNode::NapvigNode(int &argc, char **argv, const std::string &name, uint32_t
 	_measuresChannel = sources()->declareSource<Tensor> ("measures_source");
 	_odomChannel = sources()->declareSource<Pose2> ("odom_source");
 	_clockChannel = sources()->declareSource<> ("clock_source");
+	_targetChannel = sources()->declareSource<Pose2> ("target_source");
 
 	sinks()->declareSink ("publish_tensor", &NapvigNode::publishTensor, this);
 	sinks()->declareSink ("publish_pose", &NapvigNode::publishPose, this);
@@ -40,13 +41,17 @@ vector<const char *> outputStrings = {
 	"tensor_debug_2",
 	"pose_debug",
 	"values",
-	"gradients"
+	"gradients",
+	"history",
+	"target_in_measures"
 };
 
 void NapvigNode::initROS ()
 {
 	addSub ("measures", _nlParams.get<int> ("topics/queue_size", 1), &NapvigNode::measuresCallback);
 	addSub ("odom", _nlParams.get<int> ("topics/queue_size", 1), &NapvigNode::odomCallback);
+	addSub ("target", _nlParams.get<int> ("topics/queue_size", 1), &NapvigNode::targetCallback);
+
 	addPub<geometry_msgs::Pose2D> ("command", _nlParams.get<int> ("topics/queue_size", 1));
 
 	string prefix = _nlParams.get<string> ("topics/output_prefix");
@@ -78,15 +83,20 @@ void NapvigNode::measuresCallback (const sensor_msgs::LaserScan &scanMsg)
 
 void NapvigNode::odomCallback (const nav_msgs::Odometry &odomMsg)
 {
-	Tensor position, orientation;
+	lietorch::Pose2 pose2;
 
-	pointMsgToTorch (odomMsg.pose.pose.position, position);
-	quaternionMsgToTorch (odomMsg.pose.pose.orientation, orientation);
+	poseMsgToPose2 (odomMsg.pose.pose, pose2);
 
-	lietorch::Quaternion quaternion(orientation);
-
-	lietorch::Pose2 pose2(position.slice(0,0,2), UnitComplex (quaternion.log ().coeffs[2].item().toFloat ()));
 	sources()->callSource (_odomChannel, pose2);
+}
+
+void NapvigNode::targetCallback (const geometry_msgs::Pose &poseMsg)
+{
+	lietorch::Pose2 target;
+
+	poseMsgToPose2 (poseMsg, target);
+
+	sources()->callSource (_targetChannel, target);
 }
 
 void NapvigNode::publishTensor (const torch::Tensor &tensor, ProcessOutputs::OutputType outputType)

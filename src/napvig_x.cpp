@@ -5,25 +5,45 @@ using namespace torch;
 using namespace lietorch;
 
 static const torch::Tensor zeroState = torch::tensor ({1, 0}, kFloat);
-static const torch::Tensor haltCommand = torch::tensor ({0, 0}, kFloat);
 
-Policy::Type NapvigX::getNext ()
+Policy::Type NapvigX::getNext (Policy::ResultType result)
 {
 	switch (_currPolicy) {
+	case Policy::IDLE:
+		_currPolicy = Policy::FULLY_EXPLORATIVE;
+		break;
+	case Policy::FULLY_EXPLOITATIVE:
+		switch (result) {
+		case Policy::RESULT_NONE:
+		case Policy::RESULT_ACCEPT:
+			_currPolicy = Policy::FULLY_EXPLOITATIVE;
+			break;
+		case Policy::RESULT_COMPLETE:
+			// Future: _currPolicy = Policy::FREE_SPACE;
+			_currPolicy = Policy::HALT;
+			break;
+		case Policy::RESULT_FINALIZE:
+		case Policy::RESULT_FAIL:
+			// Future: _currPolicy = <explorative>;
+			_currPolicy = Policy::HALT;
+			break;
+		}
+	case Policy::FULLY_EXPLORATIVE:
+		_currPolicy = Policy::FULLY_EXPLORATIVE;
+
+		break;
 	default:
-		_currPolicy = Policy::HALT;
 		break;
 	}
 
 	return _currPolicy;
 }
 
-Policy::Type NapvigX::getFirst() {
-	_currPolicy = Policy::LEGACY;
-	return _currPolicy;
+void NapvigX::reset() {
+	_currPolicy = Policy::IDLE;
 }
 
-State NapvigX::getInitial () {
+State NapvigX::getInitialization () {
 	return {_currPose.translation ().coeffs, _currPose.rotation () * zeroState};
 }
 
@@ -31,27 +51,3 @@ void NapvigX::updatePose(const lietorch::Pose2 &pose) {
 	_currPose = pose;
 }
 
-static const char *policyNames[] = {
-	"legacy",
-	"fully_exploitative",
-	"fully_explorative",
-	"partly_exploitative",
-	"free_space",
-	"halt"
-};
-
-string Policy::name () const {
-	return policyNames[_type];
-}
-
-Policy::Type Policy::type() {
-	return _type;
-}
-
-boost::optional<Tensor> LegacyPolicy::followPolicy (const State &initialState) {
-	return _napvig->compute (initialState);
-}
-
-boost::optional<Tensor> HaltPolicy::followPolicy (const State &initialState) {
-	return haltCommand;
-}

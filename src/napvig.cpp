@@ -83,6 +83,10 @@ boost::optional<Tensor> Napvig::compute (const State &initialization) const {
 	return voronoiSearch (xStep, initialization.search);
 }
 
+float Napvig::distToObstacles(const at::Tensor &sample) {
+	return _landscape.distToObstacles (sample);
+}
+
 
 
 

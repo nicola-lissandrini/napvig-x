@@ -1,4 +1,5 @@
 #include "napvig_modflow.h"
+#include <cmath>
 #include <lietorch/pose.h>
 
 using namespace std;
@@ -14,7 +15,9 @@ NapvigModFlow::NapvigModFlow():
 
 	_policies = {
 		make_shared<LegacyPolicy> (_napvig),
-		make_shared<HaltPolicy> (_napvig)
+		make_shared<HaltPolicy> (_napvig),
+		make_shared<FullyExploitativePolicy> (_napvig),
+		make_shared<FullyExplorativePolicy> (_napvig)
 	};
 }
 
@@ -33,6 +36,7 @@ FramesTrackerModule::FramesTrackerModule(nlib::NlModFlow *modFlow):
 {
 	_flags.addFlag ("measures_set");
 	_flags.addFlag ("odom_set");
+	_flags.addFlag ("target_set");
 }
 
 NapvigXModule::NapvigXModule(nlib::NlModFlow *modFlow, const std::vector<Policy::Ptr> &policies):
@@ -67,16 +71,20 @@ void FramesTrackerModule::setupNetwork ()
 {
 	requestConnection ("measures_source", &FramesTrackerModule::measuresTriggerSlot);
 	requestConnection ("odom_source", &FramesTrackerModule::odomSlot);
+	requestConnection ("target_source", &FramesTrackerModule::targetSlot);
 
 	_toMeasuresFrameChannel = createChannel<Pose2> ("to_measures_frame");
 	_toRobotFrameChannel = createChannel<Pose2> ("to_robot_frame");
+	_targetChannel = createChannel<Pose2> ("target_frame");
 }
 
 void PolicyModule::setupNetwork()
 {
 	requestConnection ("follow_" + _policy->name (), &PolicyModule::followPolicySlot);
+	requestConnection ("target_frame", &PolicyModule::updateTarget);
 
 	_commandChannel = createChannel<Tensor> ("command_" + _policy->name ());
+	_historyChannel = createChannel<Tensor> ("history_" + _policy->name ());
 }
 
 void NapvigXModule::setupNetwork ()
@@ -106,9 +114,12 @@ void ProcessOutputs::setupNetwork ()
 	requestConnection ("to_robot_frame", &ProcessOutputs::poseSlot);
 	requestConnection ("debug_values", &ProcessOutputs::debugValuesSlot);
 	requestConnection ("debug_gradients", &ProcessOutputs::debugGradientsSlot);
+	requestConnection ("target_frame", &ProcessOutputs::targetSlot);
 
-	for (const Policy::Ptr &policy : _policies)
+	for (const Policy::Ptr &policy : _policies) {
 		requestConnection ("command_" + policy->name (), &ProcessOutputs::commandSlot);
+		requestConnection ("history_" + policy->name (), &ProcessOutputs::debugHistory);
+	}
 
 	_tensorSink = requireSink<Tensor, OutputType> ("publish_tensor");
 	_poseSink = requireSink<lietorch::Pose2, OutputType> ("publish_pose");
@@ -122,7 +133,37 @@ void ProcessOutputs::setupNetwork ()
 
 void FramesTrackerModule::initParams (const NlParams &nlParams) {}
 void NapvigXModule::initParams (const NlParams &nlParams) {}
-void PolicyModule::initParams(const nlib::NlParams &nlParams) {}
+
+void PolicyModule::initParams(const nlib::NlParams &nlParams)
+{
+	switch (_policy->type ()) {
+	case Policy::HALT:
+	case Policy::LEGACY:
+		break;
+	case Policy::FULLY_EXPLOITATIVE: {
+		FullyExploitativeBase::Params params;
+
+		params.terminator.maxCount = nlParams.get<int> ("max_count");
+		params.terminator.collisionRadius  = nlParams.get<float> ("collision_radius");
+		params.terminator.targetRadius = nlParams.get<float> ("target_radius");
+
+		derived<FullyExploitativePolicy> ()->setParams (params);
+		break;
+	}
+	case Policy::FULLY_EXPLORATIVE: {
+		FullyExplorativePolicy::Params params;
+
+		params.terminator.maxCount = nlParams.get<int> ("max_count");
+		params.terminator.collisionRadius  = nlParams.get<float> ("collision_radius");
+		params.angleRange = nlParams.get<nlib::Range> ("angle_search_range");
+
+		derived<FullyExplorativePolicy> ()->setParams (params);
+	}
+	default:
+		break;
+	}
+}
+
 void NapvigModule::initParams (const NlParams &nlParams) {
 	_params = {
 		.outputValues = nlParams.get<bool> ("debug/output_values"),
@@ -186,12 +227,24 @@ void FramesTrackerModule::odomSlot (const lietorch::Pose2 &odomFrame)
 	_lastFrame = odomFrame;
 	
 	if (_flags.all ()) {
-		Pose2 toRobotFrame = odomFrame.inverse () * _measuresFrame;
-		Pose2 toMeasuresFrame = toRobotFrame.inverse ();
+		_odomToRobotFrame = odomFrame.inverse () * _measuresFrame;
+		_robotToMeasuresFrame = _odomToRobotFrame.inverse ();
 
-		emit (_toRobotFrameChannel, toRobotFrame);
-		emit (_toMeasuresFrameChannel, toMeasuresFrame);
+		emit (_toRobotFrameChannel, _odomToRobotFrame);
+		emit (_toMeasuresFrameChannel, _robotToMeasuresFrame);
 	}
+}
+
+void FramesTrackerModule::targetSlot(const lietorch::Pose2 &targetFrame)
+{
+	if (!_flags["odom_set"] || !_flags["measures_set"])
+		return;
+
+	_flags.set("target_set");
+
+	lietorch::Pose2 targetInMeasures = _measuresFrame.inverse () * targetFrame;
+
+	emit (_targetChannel, targetInMeasures);
 }
 
 void FramesTrackerModule::measuresTriggerSlot (const torch::Tensor &)
@@ -213,27 +266,37 @@ void NapvigXModule::clockSlot ()
 	if (!_flags.all ())
 		return;
 
-	Policy::Type policy = _napvigX.getFirst ();
+	_napvigX.reset ();
+
+	Policy::Type policy;
+	Policy::ResultType result = Policy::RESULT_NONE;
 	
-	bool ok = false;
-	
-	while (!ok) {
-		ok = callService<bool> (_policyChannels[policy], _napvigX.getInitial ());
-		
-		if (!ok)
-			policy = _napvigX.getNext ();
+	while (result != Policy::RESULT_ACCEPT) {
+		policy = _napvigX.getNext (result);
+		result = callService<Policy::ResultType> (_policyChannels[policy], _napvigX.getInitialization ());
 	}
 }
 
-bool PolicyModule::followPolicySlot (const State &initialState) {
-	boost::optional<Tensor> result = _policy->followPolicy (initialState);
+Policy::ResultType PolicyModule::followPolicySlot(const State &initialState)
+{
+	Policy::Result result = _policy->followPolicy (initialState);
 
-	if (result.has_value ()) {
-		emit (_commandChannel, *result);
-		return true;
-	} else
-		return false;
+	Tensor debugHistory = _policy->debugHistory ();
+
+	if (debugHistory.numel () > 0)
+		emit (_historyChannel, debugHistory);
+
+	if (result.type == Policy::RESULT_ACCEPT)
+		emit (_commandChannel, result.command);
+
+	return result.type;
 }
+
+void PolicyModule::updateTarget (const Pose2 &target) {
+	_policy->updateTarget (target);
+}
+
+
 
 void NapvigModule::debugGradients () {
 	Tensor gradients = _napvig->debugLandscapeGradients (_debug.gridPoints);
@@ -248,7 +311,6 @@ void NapvigModule::debugValues ()
 	PROFILE_N (taken, [&] {
 			values = _napvig->debugLandscapeValues (_debug.gridPoints);
 		}, values.size(0));
-
 
 	emit(_debugValuesChannel, values);
 }
@@ -282,12 +344,20 @@ void ProcessOutputs::commandSlot (const Tensor &command)
 	emit (_commandSink, commandInRobotFrame);
 }
 
-void ProcessOutputs::debugValuesSlot(const at::Tensor &values) {
+void ProcessOutputs::debugValuesSlot (const at::Tensor &values) {
 	emit (_tensorSink, values, OUTPUT_VALUES);
 }
 
-void ProcessOutputs::debugGradientsSlot(const at::Tensor &values) {
+void ProcessOutputs::debugGradientsSlot (const at::Tensor &values) {
 	emit (_tensorSink, values, OUTPUT_GRADIENTS);
+}
+
+void ProcessOutputs::debugHistory (const Tensor &history) {
+	emit (_tensorSink, history, OUTPUT_HISTORY);
+}
+
+void ProcessOutputs::targetSlot (const lietorch::Pose2 &target) {
+	emit (_tensorSink, target.translation ().coeffs, OUTPUT_TARGET);
 }
 
 void ProcessOutputs::measuresSlot (const torch::Tensor &measures)

@@ -1,0 +1,7 @@
+/home/nicola/ros/napvig3_ws/src/napvig-x/build-ctests-Desktop-Debug/CMakeFiles/install/strip.dir
+/home/nicola/ros/napvig3_ws/src/napvig-x/build-ctests-Desktop-Debug/CMakeFiles/install/local.dir
+/home/nicola/ros/napvig3_ws/src/napvig-x/build-ctests-Desktop-Debug/CMakeFiles/install.dir
+/home/nicola/ros/napvig3_ws/src/napvig-x/build-ctests-Desktop-Debug/CMakeFiles/list_install_components.dir
+/home/nicola/ros/napvig3_ws/src/napvig-x/build-ctests-Desktop-Debug/CMakeFiles/rebuild_cache.dir
+/home/nicola/ros/napvig3_ws/src/napvig-x/build-ctests-Desktop-Debug/CMakeFiles/edit_cache.dir
+/home/nicola/ros/napvig3_ws/src/napvig-x/build-ctests-Desktop-Debug/CMakeFiles/ctests.dir
