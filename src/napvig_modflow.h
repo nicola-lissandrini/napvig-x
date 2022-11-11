@@ -19,13 +19,15 @@ public:
 	
 private:
 	std::vector<Policy::Ptr> _policies;
+	FramesTracker::Ptr _framesTracker;
 	Napvig::Ptr _napvig;
+	LandmarksManager::Ptr _landmarksManager;
 };
 
 class FramesTrackerModule : public nlib::NlModule
 {
 public:
-	FramesTrackerModule (nlib::NlModFlow *modFlow);
+	FramesTrackerModule (nlib::NlModFlow *modFlow, const FramesTracker::Ptr &framesTracker);
 
 	void initParams (const nlib::NlParams &nlParams) override;
 	void setupNetwork () override;
@@ -35,29 +37,42 @@ public:
 	void targetSlot (const lietorch::Pose2 &targetFrame);
 
 private:
-	nlib::ReadyFlagsStr _flags;
-	lietorch::Pose2 _measuresFrame, _lastFrame;
-	lietorch::Pose2 _odomToRobotFrame, _robotToMeasuresFrame;
-	nlib::Channel _toMeasuresFrameChannel, _toRobotFrameChannel, _targetChannel;
+	FramesTracker::Ptr _framesTracker;
+	nlib::Channel _measuresUpdatedChannel, _robotUpdatedChannel, _targetUpdatedChannel;
 };
 
 
 class NapvigXModule : public nlib::NlModule
 {
 public:
-	NapvigXModule (nlib::NlModFlow *modFlow, const std::vector<Policy::Ptr> &policies);
+	NapvigXModule (nlib::NlModFlow *modFlow, const std::vector<Policy::Ptr> &policies, const FramesTracker::Ptr &framesTracker);
 	
 	void initParams (const nlib::NlParams &nlParams) override;
 	void setupNetwork () override;
 	
 	void clockSlot ();
-	void poseSlot (const lietorch::Pose2 &);
-	
+	void abortSlot ();
+
 private:
 	const std::vector<Policy::Ptr> &_policies;
 	nlib::ReadyFlagsStr _flags;
 	NapvigX _napvigX;
 	std::map<Policy::Type, nlib::Channel> _policyChannels;
+};
+
+class LandmarksModule : public nlib::NlModule
+{
+public:
+	LandmarksModule (nlib::NlModFlow *modFlow, const LandmarksManager::Ptr &landmarksManager, const FramesTracker::Ptr &framesTracker);
+
+	void initParams (const nlib::NlParams &nlParams) override;
+	void setupNetwork () override;
+
+	void poseUpdated ();
+
+private:
+	FramesTracker::Ptr _framesTracker;
+	LandmarksManager::Ptr _landmarksManager;
 };
 
 class PolicyModule : public nlib::NlModule
@@ -68,8 +83,10 @@ public:
 	void initParams (const nlib::NlParams &nlParams) override;
 	void setupNetwork () override;
 
-	Policy::ResultType followPolicySlot(const State &initialState);
-	void updateTarget (const lietorch::Pose2 &target);
+	Policy::Result followPolicySlot(const State &initialState);
+
+	void targetUpdated ();
+	void measuresUpdated ();
 
 private:
 	template<class _Derived>
@@ -78,7 +95,7 @@ private:
 	}
 
 	Policy::Ptr _policy;
-	nlib::Channel _commandChannel, _napvigChannel, _historyChannel;
+	nlib::Channel _commandChannel, _napvigChannel, _historyChannel, _costDebugChannel;
 };
 
 class NapvigModule : public nlib::NlModule
@@ -133,7 +150,7 @@ public:
 		OUTPUT_TARGET
 	};
 
-	ProcessOutputs (nlib::NlModFlow *modFlow, const std::vector<Policy::Ptr> &policies);
+	ProcessOutputs (nlib::NlModFlow *modFlow, const std::vector<Policy::Ptr> &policies, const FramesTracker::Ptr &framesTracker);
 
 	void initParams (const nlib::NlParams &nlParams) override;
 	void setupNetwork () override;
@@ -141,13 +158,15 @@ public:
 	void measuresSlot (const torch::Tensor &measures);
 	void poseSlot (const lietorch::Pose2 &pose);
 	void commandSlot (const torch::Tensor &command);
+
 	void debugValuesSlot (const torch::Tensor &values);
 	void debugGradientsSlot (const torch::Tensor &values);
 	void debugHistory (const torch::Tensor &history);
-	void targetSlot (const lietorch::Pose2 &target);
+	void debugCostSlot (const torch::Tensor &cost);
+	void targetSlot ();
 
 private:
-	lietorch::Pose2 _toRobotFrame;
+	FramesTracker::Ptr _framesTracker;
 	const std::vector<Policy::Ptr> &_policies;
 	Params _params;
 	nlib::Channel _measuresChannel, _tensorSink, _poseSink, _commandSink;

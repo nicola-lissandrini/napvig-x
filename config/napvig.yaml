@@ -3,36 +3,71 @@ napvig:
   threads: 1
   mod_flow:
     debug:
-      enable: true
+      enable: false
       only_channels:
         - clock_source
 
   napvig:
     step_ahead_size: 0.2
-    gradient_step_size: 0.01
+    gradient_step_size: 0.05
     termination_distance: 0.00
-    max_iterations: 15
+    max_iterations: 10
+    collision_radius: 0.2
     landscape:
-      measure_radius: 0.4
-      smooth_radius: 0.001
+      measure_radius: 0.2
+      smooth_radius: 0.02
       precision: 50
       decimation: 3
     debug:
       output_values: false
       output_gradient: false
       output_range:
-        min: -1
-        max: 1.15
+        min: -2
+        max: 2.21
         step: 0.2
       frames_skip: 5
+  napvig_x:
+    legacy_hold_count: 50
   fully_exploitative_policy:
-    max_count: 50
-    collision_radius: 0.2
+    max_count: 5
     target_radius: 0.3
+  landmarks:
+    batch_size: 500
+    min_elapsed: 2.
+    min_distance: 0.15
+    invalid_weight: 0.4
+  free_space_policy:
+    reach_threshold: 0.05
   fully_explorative_policy:
     max_count: 5
-    collision_radius: 0.2
+    cost:
+      landmark_radius: 0.4
+      weight: 1
+      decay_constant: 0.0
+    angle_search_range:
+      min: rad(-pi)
+      max: rad(pi)
+      step: rad(pi/4) 469
+    debug:
+      output_cost: false
+      output_range:
+        min: -2
+        max: 2
+        step: 0.05
+  partly_explorative_policy:
+    max_count: 4
+    cost:
+      landmark_radius: 0.15
+      weight: 1
+      target_weight: 0.4
+      decay_constant: 0.01
     angle_search_range:
       min: rad(-pi)
       max: rad(pi)
       step: rad(pi/4)
+    debug:
+      output_cost: true
+      output_range:
+        min: -2
+        max: 2.00001
+        step: 0.2

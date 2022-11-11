@@ -5,6 +5,14 @@ using namespace std;
 using namespace torch;
 using namespace lietorch;
 
+const char *terminationStrings[] = {
+	"none",
+	"collision",
+	"max_steps",
+	"target_approached",
+	"fault"
+};
+
 template
 	class PredictivePolicy<TowardsTarget, CollisionTargetTerminator>;
 
@@ -39,8 +47,7 @@ bool CollisionTerminator::check (const Tensor &sample)
 	if (Terminator::check (sample))
 		return true;
 
-
-	if (_napvig->distToObstacles (sample) < params().collisionRadius) {
+	if (_napvig->collides (sample)) {
 		_cause = TERMINATION_COLLISION;
 		return true;
 	}
@@ -93,14 +100,6 @@ torch::Tensor StraightAhead::getSearch (const torch::Tensor &trajectory) {
 	else
 		return normalizedDiff(trajectory[-2], trajectory[-1]);
 }
-
-const char *terminationStrings[] = {
-	"TERMINATION_NONE",
-	"TERMINATION_COLLISION",
-	"TERMINATION_MAX_STEPS",
-	"TERMINATION_TARGET_APPROACHED",
-	"TERMINATION_FAULT"
-};
 
 template<class _Predictor, class _Terminator>
 Tensor PredictivePolicy<_Predictor, _Terminator>::predict (const State &initialState, Terminator::Type &terminationCause)

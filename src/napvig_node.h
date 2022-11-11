@@ -29,6 +29,8 @@ public:
 	void publishPose (const lietorch::Pose2 &pose, ProcessOutputs::OutputType);
 	void publishCommand (const torch::Tensor &command);
 
+	void abort ();
+
 	DEF_SHARED(NapvigNode)
 
 protected:
@@ -39,6 +41,7 @@ private:
 	nlib::Channel _odomChannel;
 	nlib::Channel _targetChannel;
 	nlib::Channel _clockChannel;
+	nlib::Channel _abortChannel;
 };
 
 #endif // NAPVIGNODE_H

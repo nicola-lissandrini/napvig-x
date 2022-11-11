@@ -17,6 +17,7 @@ public:
 		float stepAheadSize;
 		float gradientStepSize;
 		float terminationDistance;
+		float collisionRadius;
 		int maxIterations;
 	};
 
@@ -27,7 +28,7 @@ public:
 	torch::Tensor setMeasures(const torch::Tensor &measures);
 
 	boost::optional<torch::Tensor> compute (const State &initialization) const;
-	float distToObstacles (const torch::Tensor &sample);
+	bool collides (const torch::Tensor &sample);
 
 	torch::Tensor debugLandscapeValues (const torch::Tensor &grid) const;
 	torch::Tensor debugLandscapeGradients (const torch::Tensor &grid) const;
