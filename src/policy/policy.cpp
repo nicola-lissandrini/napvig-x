@@ -8,7 +8,7 @@ static const char *policyNames[] = {
 	"legacy",
 	"fully_exploitative",
 	"fully_explorative",
-	"partly_exploitative",
+	"partly_explorative",
 	"free_space",
 	"halt"
 };

@@ -12,36 +12,46 @@ NapvigModFlow::NapvigModFlow():
 	  nlib::NlModFlow ()
 {
 	_napvig = make_shared<Napvig> ();
+	_landmarksManager = make_shared<LandmarksManager> ();
+	_framesTracker = make_shared<FramesTracker> ();
 
 	_policies = {
-		make_shared<LegacyPolicy> (_napvig),
-		make_shared<HaltPolicy> (_napvig),
-		make_shared<FullyExploitativePolicy> (_napvig),
-		make_shared<FullyExplorativePolicy> (_napvig)
+		make_shared<LegacyPolicy> (_napvig, _framesTracker, _landmarksManager),
+		make_shared<FullyExploitativePolicy> (_napvig, _framesTracker, _landmarksManager),
+		make_shared<FullyExplorativePolicy> (_napvig, _framesTracker, _landmarksManager),
+		make_shared<PartlyExplorativePolicy> (_napvig, _framesTracker, _landmarksManager),
+		make_shared<FreeSpacePolicy> (_napvig, _framesTracker, _landmarksManager),
+		make_shared<HaltPolicy> (_napvig, _framesTracker, _landmarksManager)
 	};
 }
 
 void NapvigModFlow::loadModules ()
 {
-	loadModule<FramesTrackerModule> ();
-	loadModule<NapvigXModule> (_policies);
+	loadModule<FramesTrackerModule> (_framesTracker);
 	loadModule<NapvigModule> (_napvig);
+	loadModule<NapvigXModule> (_policies, _framesTracker);
+	loadModule<LandmarksModule> (_landmarksManager, _framesTracker);
 	for (Policy::Ptr policy : _policies)
 		loadModule<PolicyModule> (policy);
-	loadModule<ProcessOutputs> (_policies);
+	loadModule<ProcessOutputs> (_policies, _framesTracker);
 }
 
-FramesTrackerModule::FramesTrackerModule(nlib::NlModFlow *modFlow):
-	  nlib::NlModule (modFlow, "frames_tracker")
+FramesTrackerModule::FramesTrackerModule(nlib::NlModFlow *modFlow, const FramesTracker::Ptr &framesTracker):
+	  nlib::NlModule (modFlow, "frames_tracker"),
+	  _framesTracker(framesTracker)
 {
-	_flags.addFlag ("measures_set");
-	_flags.addFlag ("odom_set");
-	_flags.addFlag ("target_set");
 }
 
-NapvigXModule::NapvigXModule(nlib::NlModFlow *modFlow, const std::vector<Policy::Ptr> &policies):
+LandmarksModule::LandmarksModule(nlib::NlModFlow *modFlow, const LandmarksManager::Ptr &landmarksManager, const FramesTracker::Ptr &framesTracker):
+	  nlib::NlModule (modFlow, "landmarks"),
+	  _landmarksManager(landmarksManager),
+	  _framesTracker(framesTracker)
+{}
+
+NapvigXModule::NapvigXModule(nlib::NlModFlow *modFlow, const std::vector<Policy::Ptr> &policies, const FramesTracker::Ptr &framesTracker):
 	  NlModule(modFlow, "napvig_x"),
-	  _policies(policies)
+	  _policies(policies),
+	  _napvigX(framesTracker)
 {
 	_flags.addFlag ("pose_set");
 }
@@ -49,17 +59,17 @@ NapvigXModule::NapvigXModule(nlib::NlModFlow *modFlow, const std::vector<Policy:
 PolicyModule::PolicyModule(nlib::NlModFlow *modFlow, const Policy::Ptr &policy):
 	  NlModule (modFlow, policy->name () + "_policy"),
 	  _policy(policy)
-{
-}
+{}
 
 NapvigModule::NapvigModule(nlib::NlModFlow *modFlow, const Napvig::Ptr &napvig):
 	  nlib::NlModule (modFlow, "napvig"),
 	  _napvig(napvig)
 {}
 
-ProcessOutputs::ProcessOutputs(nlib::NlModFlow *modFlow, const std::vector<Policy::Ptr> &policies):
+ProcessOutputs::ProcessOutputs(nlib::NlModFlow *modFlow, const std::vector<Policy::Ptr> &policies, const FramesTracker::Ptr &framesTracker):
 	  nlib::NlModule (modFlow, "outputs"),
-	  _policies(policies)
+	  _policies(policies),
+	  _framesTracker(framesTracker)
 {}
 
 
@@ -73,30 +83,34 @@ void FramesTrackerModule::setupNetwork ()
 	requestConnection ("odom_source", &FramesTrackerModule::odomSlot);
 	requestConnection ("target_source", &FramesTrackerModule::targetSlot);
 
-	_toMeasuresFrameChannel = createChannel<Pose2> ("to_measures_frame");
-	_toRobotFrameChannel = createChannel<Pose2> ("to_robot_frame");
-	_targetChannel = createChannel<Pose2> ("target_frame");
+	_measuresUpdatedChannel = createChannel<> ("measures_updated");
+	_robotUpdatedChannel = createChannel<> ("robot_updated");
+	_targetUpdatedChannel = createChannel<> ("target_updated");
+}
+
+
+void NapvigXModule::setupNetwork ()
+{
+	requestConnection ("clock_source", &NapvigXModule::clockSlot);
+	requestConnection ("abort_source", &NapvigXModule::abortSlot);
+
+	for (const Policy::Ptr &policy : _policies)
+		_policyChannels[policy->type()] = createChannel<State> ("follow_" + policy->name ());
 }
 
 void PolicyModule::setupNetwork()
 {
 	requestConnection ("follow_" + _policy->name (), &PolicyModule::followPolicySlot);
-	requestConnection ("target_frame", &PolicyModule::updateTarget);
+	requestConnection ("target_updated", &PolicyModule::targetUpdated);
+	requestConnection ("measures_updated", &PolicyModule::measuresUpdated);
 
 	_commandChannel = createChannel<Tensor> ("command_" + _policy->name ());
 	_historyChannel = createChannel<Tensor> ("history_" + _policy->name ());
+	_costDebugChannel = createChannel<Tensor> ("cost_" + _policy->name ());
 }
 
-void NapvigXModule::setupNetwork ()
-{
-	requestConnection ("clock_source", &NapvigXModule::clockSlot);
-	requestConnection ("to_measures_frame", &NapvigXModule::poseSlot);
-	requestEnablingChannel ("measures_source");
-
-	// _policyChannels.resize (_policies.size ());
-
-	for (const Policy::Ptr &policy : _policies)
-		_policyChannels[policy->type()] = createChannel<State> ("follow_" + policy->name ());
+void LandmarksModule::setupNetwork () {
+	requestConnection ("measures_updated", &LandmarksModule::poseUpdated);
 }
 
 void NapvigModule::setupNetwork ()
@@ -111,10 +125,11 @@ void NapvigModule::setupNetwork ()
 void ProcessOutputs::setupNetwork ()
 {
 	requestConnection ("measures_processed", &ProcessOutputs::measuresSlot);
-	requestConnection ("to_robot_frame", &ProcessOutputs::poseSlot);
 	requestConnection ("debug_values", &ProcessOutputs::debugValuesSlot);
 	requestConnection ("debug_gradients", &ProcessOutputs::debugGradientsSlot);
-	requestConnection ("target_frame", &ProcessOutputs::targetSlot);
+	requestConnection ("cost_fully_explorative", &ProcessOutputs::debugCostSlot);
+	requestConnection ("cost_partly_explorative", &ProcessOutputs::debugCostSlot);
+	requestConnection ("target_updated", &ProcessOutputs::targetSlot);
 
 	for (const Policy::Ptr &policy : _policies) {
 		requestConnection ("command_" + policy->name (), &ProcessOutputs::commandSlot);
@@ -132,7 +147,26 @@ void ProcessOutputs::setupNetwork ()
  * *********************/
 
 void FramesTrackerModule::initParams (const NlParams &nlParams) {}
-void NapvigXModule::initParams (const NlParams &nlParams) {}
+void NapvigXModule::initParams (const NlParams &nlParams)
+{
+	NapvigX::Params params = {
+		.legacyHoldCount = nlParams.get<int> ("legacy_hold_count")
+	};
+
+	_napvigX.setParams (params);
+}
+
+void LandmarksModule::initParams (const NlParams &nlParams)
+{
+	LandmarksManager::Params params = {
+		.batchSize = nlParams.get<int> ("batch_size"),
+		.minElapsed = nlParams.get<float> ("min_elapsed"),
+		.minDistance = nlParams.get<float> ("min_distance"),
+		.invalidWeight = nlParams.get<float> ("invalid_weight")
+	};
+
+	_landmarksManager->setParams (params);
+}
 
 void PolicyModule::initParams(const nlib::NlParams &nlParams)
 {
@@ -140,24 +174,56 @@ void PolicyModule::initParams(const nlib::NlParams &nlParams)
 	case Policy::HALT:
 	case Policy::LEGACY:
 		break;
+	case Policy::FREE_SPACE: {
+		FreeSpacePolicy::Params params;
+
+		params.reachThreshold = nlParams.get<float> ("reach_threshold");
+
+		derived<FreeSpacePolicy> ()->setParams (params);
+
+		break;
+	}
 	case Policy::FULLY_EXPLOITATIVE: {
 		FullyExploitativeBase::Params params;
 
 		params.terminator.maxCount = nlParams.get<int> ("max_count");
-		params.terminator.collisionRadius  = nlParams.get<float> ("collision_radius");
 		params.terminator.targetRadius = nlParams.get<float> ("target_radius");
 
 		derived<FullyExploitativePolicy> ()->setParams (params);
+		break;
+	}
+	case Policy::PARTLY_EXPLORATIVE: {
+		PartlyExplorativePolicy::Params params;
+
+		params.terminator.maxCount = nlParams.get<int> ("max_count");
+		params.angleRange = nlParams.get<nlib::Range> ("angle_search_range");
+		params.cost.landmarkRadius = nlParams.get<float> ("cost/landmark_radius");
+		params.cost.weight = nlParams.get<float> ("cost/weight");
+		params.cost.targetWeight = nlParams.get<float> ("cost/target_weight");
+		params.cost.decayConstant = nlParams.get<float> ("cost/decay_constant");
+		params.outputCost = nlParams.get<bool> ("debug/output_cost");
+		params.outputRange = nlParams.get<nlib::Range> ("debug/output_range");
+
+		derived<PartlyExplorativePolicy> ()->setParams (params);
+		derived<PartlyExplorativePolicy> ()->initDebugGrid ();
+
 		break;
 	}
 	case Policy::FULLY_EXPLORATIVE: {
 		FullyExplorativePolicy::Params params;
 
 		params.terminator.maxCount = nlParams.get<int> ("max_count");
-		params.terminator.collisionRadius  = nlParams.get<float> ("collision_radius");
 		params.angleRange = nlParams.get<nlib::Range> ("angle_search_range");
+		params.cost.landmarkRadius = nlParams.get<float> ("cost/landmark_radius");
+		params.cost.weight = nlParams.get<float> ("cost/weight");
+		params.cost.decayConstant = nlParams.get<float> ("cost/decay_constant");
+		params.outputCost = nlParams.get<bool> ("debug/output_cost");
+		params.outputRange = nlParams.get<nlib::Range> ("debug/output_range");
 
 		derived<FullyExplorativePolicy> ()->setParams (params);
+		derived<FullyExplorativePolicy> ()->initDebugGrid ();
+
+		break;
 	}
 	default:
 		break;
@@ -188,6 +254,7 @@ void NapvigModule::initParams (const NlParams &nlParams) {
 		.stepAheadSize = nlParams.get<float> ("step_ahead_size"),
 		.gradientStepSize = nlParams.get<float> ("gradient_step_size"),
 		.terminationDistance = nlParams.get<float> ("termination_distance"),
+		.collisionRadius = nlParams.get<float> ("collision_radius"),
 		.maxIterations = nlParams.get<int> ("max_iterations")
 	};
 
@@ -196,19 +263,9 @@ void NapvigModule::initParams (const NlParams &nlParams) {
 	_debug.frameSeq = 0;
 }
 
-void NapvigModule::initDebugGrid ()
-{
-	Tensor xyRange = torch::arange (_params.gridRanges.min, _params.gridRanges.max, *_params.gridRanges.step, torch::dtype (kFloat));
-	Tensor xx, yy, testGrid;
-	vector<Tensor> xy;
 
-	xy = meshgrid ({xyRange, xyRange});
-
-	xx = xy[0].reshape (-1);
-	yy = xy[1].reshape (-1);
-
-	_debug.gridPoints = torch::stack ({xx, yy}, 1);
-	_debug.gridSize = xyRange.size (0);
+void NapvigModule::initDebugGrid () {
+	debugGrid (_params.gridRanges, _debug.gridPoints, _debug.gridSize);
 }
 
 void ProcessOutputs::initParams (const NlParams &nlParams) {
@@ -221,82 +278,91 @@ void ProcessOutputs::initParams (const NlParams &nlParams) {
  * Slots
  * *********************/
 
-void FramesTrackerModule::odomSlot (const lietorch::Pose2 &odomFrame)
-{
-	_flags.set ("odom_set");
-	_lastFrame = odomFrame;
-	
-	if (_flags.all ()) {
-		_odomToRobotFrame = odomFrame.inverse () * _measuresFrame;
-		_robotToMeasuresFrame = _odomToRobotFrame.inverse ();
-
-		emit (_toRobotFrameChannel, _odomToRobotFrame);
-		emit (_toMeasuresFrameChannel, _robotToMeasuresFrame);
-	}
+void FramesTrackerModule::odomSlot (const lietorch::Pose2 &odomFrame) {
+	_framesTracker->update<FRAME_ROBOT> (odomFrame);
+	emit (_robotUpdatedChannel);
 }
 
-void FramesTrackerModule::targetSlot(const lietorch::Pose2 &targetFrame)
-{
-	if (!_flags["odom_set"] || !_flags["measures_set"])
-		return;
-
-	_flags.set("target_set");
-
-	lietorch::Pose2 targetInMeasures = _measuresFrame.inverse () * targetFrame;
-
-	emit (_targetChannel, targetInMeasures);
+void FramesTrackerModule::targetSlot (const lietorch::Pose2 &targetFrame) {
+	_framesTracker->update<FRAME_TARGET> (targetFrame);
+	emit (_targetUpdatedChannel);
 }
 
-void FramesTrackerModule::measuresTriggerSlot (const torch::Tensor &)
-{
-	if (!_flags["odom_set"])
-		return;
-
-	_flags.set ("measures_set");
-	_measuresFrame = _lastFrame;
+void FramesTrackerModule::measuresTriggerSlot (const torch::Tensor &) {
+	_framesTracker->updateMeasures ();
+	emit (_measuresUpdatedChannel);
 }
 
-void NapvigXModule::poseSlot (const Pose2 &pose) {
-	_flags.set ("pose_set");
-	_napvigX.updatePose (pose);
-}
+const char *resultStrings[] = {
+	"none",
+	"fail",
+	"accept",
+	"complete",
+	"finalize"
+};
 
 void NapvigXModule::clockSlot ()
 {
-	if (!_flags.all ())
+	if (!_napvigX.ready ())
 		return;
 
 	_napvigX.reset ();
 
 	Policy::Type policy;
-	Policy::ResultType result = Policy::RESULT_NONE;
+	Policy::Result result;
+
+	result.type = Policy::RESULT_NONE;
+
+	cout << "\e[33mNew Sample\e[0m" << endl;
 	
-	while (result != Policy::RESULT_ACCEPT) {
-		policy = _napvigX.getNext (result);
-		result = callService<Policy::ResultType> (_policyChannels[policy], _napvigX.getInitialization ());
+	while (result.type != Policy::RESULT_ACCEPT) {
+		policy = _napvigX.getNext (result.type);
+
+		cout << "Current policy \e[32m" << _policies[policy]->name () << "\e[0m" << endl;
+
+		result = callService<Policy::Result> (_policyChannels[policy], _napvigX.getInitialization ());
+		cout << "Result \e[34m" << resultStrings[result.type] << "\e[0m" << endl;
 	}
+
+	// cout << "Accepted" << endl;
+
+	_napvigX.finalize (result.command);
 }
 
-Policy::ResultType PolicyModule::followPolicySlot(const State &initialState)
+void NapvigXModule::abortSlot () {
+	callService<Policy::Result> (_policyChannels[Policy::HALT], _napvigX.getInitialization ());
+}
+
+void LandmarksModule::poseUpdated () {
+	_landmarksManager->update (_framesTracker->get (FRAME_MEASURES));
+}
+
+Policy::Result PolicyModule::followPolicySlot(const State &initialState)
 {
 	Policy::Result result = _policy->followPolicy (initialState);
 
 	Tensor debugHistory = _policy->debugHistory ();
+	Tensor debugCost = _policy->debugCost ();
 
 	if (debugHistory.numel () > 0)
 		emit (_historyChannel, debugHistory);
 
+	if (debugCost.numel () > 0)
+		emit (_costDebugChannel, debugCost);
+
 	if (result.type == Policy::RESULT_ACCEPT)
 		emit (_commandChannel, result.command);
 
-	return result.type;
+	return result;
 }
 
-void PolicyModule::updateTarget (const Pose2 &target) {
-	_policy->updateTarget (target);
+void PolicyModule::targetUpdated () {
+	_policy->targetUpdated ();
 }
 
-
+void PolicyModule::measuresUpdated () {
+	_policy->measuresUpdated ();
+}
 
 void NapvigModule::debugGradients () {
 	Tensor gradients = _napvig->debugLandscapeGradients (_debug.gridPoints);
@@ -308,6 +374,7 @@ void NapvigModule::debugValues ()
 {
 	double taken;
 	Tensor values;
+
 	PROFILE_N (taken, [&] {
 			values = _napvig->debugLandscapeValues (_debug.gridPoints);
 		}, values.size(0));
@@ -339,7 +406,7 @@ void ProcessOutputs::commandSlot (const Tensor &command)
 		return;
 	}
 
-	Tensor commandInRobotFrame = _toRobotFrame * command;
+	Tensor commandInRobotFrame = _framesTracker->getIn (FRAME_ROBOT, FRAME_MEASURES, command);
 
 	emit (_commandSink, commandInRobotFrame);
 }
@@ -356,8 +423,12 @@ void ProcessOutputs::debugHistory (const Tensor &history) {
 	emit (_tensorSink, history, OUTPUT_HISTORY);
 }
 
-void ProcessOutputs::targetSlot (const lietorch::Pose2 &target) {
-	emit (_tensorSink, target.translation ().coeffs, OUTPUT_TARGET);
+void ProcessOutputs::debugCostSlot(const at::Tensor &cost) {
+	emit (_tensorSink, cost, OUTPUT_VALUES);
+}
+
+void ProcessOutputs::targetSlot () {
+	emit (_tensorSink, _framesTracker->get (FRAME_TARGET).translation ().coeffs, OUTPUT_TARGET);
 }
 
 void ProcessOutputs::measuresSlot (const torch::Tensor &measures)
@@ -370,9 +441,10 @@ void ProcessOutputs::measuresSlot (const torch::Tensor &measures)
 }
 
 void ProcessOutputs::poseSlot (const lietorch::Pose2 &frame) {
-	_toRobotFrame = frame;
 	emit (_poseSink, frame, OUTPUT_POSE_DEBUG);
 }
+
+
 
 
 

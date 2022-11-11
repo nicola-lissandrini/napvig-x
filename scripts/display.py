@@ -23,6 +23,7 @@ class DisplayNode:
         if (len (historyMsg.layout.dim) > 2):
             self.multi_history = True
             self.history = np.reshape (self.history, (historyMsg.layout.dim[0].size, historyMsg.layout.dim[1].size, historyMsg.layout.dim[2].size))
+            
         else:
             self.multi_history = False
             self.history = np.reshape (self.history, (historyMsg.layout.dim[0].size, historyMsg.layout.dim[1].size))
@@ -75,9 +76,12 @@ class DisplayNode:
         self.target_sub = rospy.Subscriber ("/napvig/outputs/target_in_measures", Float32MultiArray, self.target_callback, queue_size=1)
         self.target_history = rospy.Subscriber ("/napvig/outputs/history", Float32MultiArray, self.history_callback, queue_size=1)
 
-        self.range_min = rospy.get_param ("/napvig/napvig/debug/output_range/min")
-        self.range_max = rospy.get_param ("/napvig/napvig/debug/output_range/max")
-        self.range_step = rospy.get_param ("/napvig/napvig/debug/output_range/step")
+        np_range_min = rospy.get_param ("/napvig/napvig/debug/output_range/min")
+        np_range_max = rospy.get_param ("/napvig/napvig/debug/output_range/max")
+        fe_range_min = rospy.get_param ("/napvig/fully_explorative_policy/debug/output_range/min")
+        fe_range_max = rospy.get_param ("/napvig/fully_explorative_policy/debug/output_range/max")
+        self.range_min = np.min ([np_range_min, fe_range_min])
+        self.range_max = np.max ([fe_range_max, np_range_max])
         self.fig.canvas.mpl_connect('close_event', handle_close)
 
         self.meas_np = None
@@ -102,7 +106,7 @@ class DisplayNode:
             grid_y = np.reshape (self.values[:,1], (sq, sq))
             val_grid = np.reshape (self.values[:,2], (sq, sq))
 
-            plt.pcolormesh (grid_x, grid_y, val_grid, edgecolors="none", antialiased=True, vmin=0, vmax=1)
+            plt.pcolormesh (grid_x, grid_y, val_grid, edgecolors="none", antialiased=True)
 
         if (not self.gradients is None):
             plt.quiver (self.gradients[:,0], self.gradients[:,1], self.gradients[:,2], self.gradients[:,3], minshaft=0.1)
@@ -121,8 +125,15 @@ class DisplayNode:
 
         if (not self.history is None):
             if (self.multi_history):
+                valmin = self.history[:, 0, 4].min()
+                valmax = self.history[:, 0, 4].max()
+                argmin = self.history[:, 0, 4].argmin ()
                 for i in range(np.shape(self.history)[0]):
-                    plt.quiver (self.history[i,:,0], self.history[i,:,1], self.history[i,:,2], self.history[i,:,3])
+                    valcurr = self.history[i, 0, 4]
+                    # valmid = 1 - (valcurr - valmin) / (valmax - valmin)
+                    if (i != argmin):
+                        plt.quiver (self.history[i,:,0], self.history[i,:,1], self.history[i,:,2], self.history[i,:,3], color="darkgray")
+                plt.quiver (self.history[argmin,:,0], self.history[argmin,:,1], self.history[argmin,:,2], self.history[argmin,:,3], color="black")
             else:
                 plt.quiver (self.history[:,0], self.history[:,1], self.history[:,2], self.history[:,3])
             #plt.scatter (self.history[:,0], self.history[:,1], 4, color="blue")

@@ -18,6 +18,7 @@ void Napvig::setParams (const Params &napvigParams, const Landscape::Params &lan
 
 Tensor Napvig::debugLandscapeValues (const Tensor &grid) const {
 	Tensor values = _landscape.value (grid);
+
 	return torch::cat ({grid, values.unsqueeze(1)}, 1);
 }
 
@@ -75,16 +76,22 @@ Tensor Napvig::stepAhead (const State &x0) const {
 boost::optional<Tensor> Napvig::compute (const State &initialization) const {
 	Tensor xStep;
 
-	if (_landscape.invalid ())
+	if (!_landscape.isInitialized ())
 		return boost::none;
 
 	xStep = stepAhead (initialization);
 
+	if (_landscape.isEmpty ())
+		return xStep;
+
 	return voronoiSearch (xStep, initialization.search);
 }
 
-float Napvig::distToObstacles(const at::Tensor &sample) {
-	return _landscape.distToObstacles (sample);
+bool Napvig::collides (const Tensor &sample)
+{
+	// if there are no obstacles distToObstacles returns NAN
+	// any comparison with NAN is false
+	return _landscape.distToObstacles (sample) < _params.collisionRadius;
 }
 
 

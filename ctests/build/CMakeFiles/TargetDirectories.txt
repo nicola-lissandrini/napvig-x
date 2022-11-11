@@ -1,7 +1,0 @@
-/home/nicola/ros/napvig3_ws/src/napvig-x/ctests/build/CMakeFiles/install/local.dir
-/home/nicola/ros/napvig3_ws/src/napvig-x/ctests/build/CMakeFiles/install.dir
-/home/nicola/ros/napvig3_ws/src/napvig-x/ctests/build/CMakeFiles/list_install_components.dir
-/home/nicola/ros/napvig3_ws/src/napvig-x/ctests/build/CMakeFiles/rebuild_cache.dir
-/home/nicola/ros/napvig3_ws/src/napvig-x/ctests/build/CMakeFiles/edit_cache.dir
-/home/nicola/ros/napvig3_ws/src/napvig-x/ctests/build/CMakeFiles/ctests.dir
-/home/nicola/ros/napvig3_ws/src/napvig-x/ctests/build/CMakeFiles/install/strip.dir

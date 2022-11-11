@@ -51,9 +51,7 @@ private:
 class CollisionTerminator : public Terminator
 {
 public:
-	// TODO: all inherited params are stored for each subclass, fix that
 	struct Params : Terminator::Params {
-		float collisionRadius;
 
 		DEF_SHARED(Params)
 	};
@@ -170,8 +168,8 @@ public:
 		DEF_SHARED(Params)
 	};
 
-	PredictivePolicy (Type type, const Napvig::Ptr &napvig):
-		  Policy(type, napvig),
+	PredictivePolicy (Type type, const Napvig::Ptr &napvig, const FramesTracker::Ptr &framesTracker, const LandmarksManager::Ptr &landmarksManager):
+		  Policy(type, napvig, framesTracker, landmarksManager),
 		  _terminator(napvig)
 	{}
 
@@ -196,5 +194,7 @@ protected:
 private:
 	typename Params::Ptr _params;
 };
+
+extern const char *terminationStrings[];
 
 #endif // PREDICTIVE_H

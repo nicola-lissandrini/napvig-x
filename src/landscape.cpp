@@ -17,7 +17,8 @@ Tensor Smoother::evaluate (const Fcn &f, const Tensor &x) const
 	return f(xEval).mean (1);
 }
 
-Landscape::Landscape ()
+Landscape::Landscape ():
+	_initialized(false)
 {
 	_valueLambda = [this] (const Tensor &p) -> Tensor {
 		return this->preSmoothValue (p);
@@ -44,14 +45,16 @@ Tensor Landscape::peak (const torch::Tensor &v) const {
 
 Tensor Landscape::value (const Tensor &p) const
 {
-	assert (_measures.size (0) > 0);
+	if (_measures.size (0) == 0)
+		return torch::zeros({p.size(0)}, kFloat);
 
 	return _smoother->evaluate (_valueLambda, p);
 }
 
 Tensor Landscape::gradient (const Tensor &p) const
 {
-	assert (_measures.size (0) > 0);
+	if (_measures.size (0) == 0)
+		return torch::zeros_like(p);
 
 	if (p.sizes().size() == 1) {
 		return _smoother->evaluate (_gradientLambda, p.unsqueeze(0)).squeeze ();
@@ -60,8 +63,12 @@ Tensor Landscape::gradient (const Tensor &p) const
 	}
 }
 
-bool Landscape::invalid() const {
+bool Landscape::isEmpty() const {
 	return _measures.size (0) == 0;
+}
+
+bool Landscape::isInitialized() const {
+	return _initialized;
 }
 
 Tensor Landscape::preSmoothValue (const Tensor &p) const
@@ -88,10 +95,13 @@ Tensor Landscape::preSmoothGradient (const Tensor &p) const
 									   Ellipsis})
 							   .reshape ({-1, _params.precision, L_DIM});
 
-	return collapsedDiff;// / (2 * _params.measureRadius * _params.measureRadius) * peak (collapsedDist).unsqueeze(2) * _smoothGain;
+	return collapsedDiff / (2 * _params.measureRadius * _params.measureRadius) * peak (collapsedDist).unsqueeze(2) * _smoothGain;
 }
 
 float Landscape::distToObstacles (const Tensor &p) const {
+	if (_measures.size(0) == 0)
+		return NAN;
+
 	return (p - _measures).norm (2, 1).min ().item().toFloat ();
 }
 
@@ -100,6 +110,7 @@ Tensor Landscape::setMeasures (const Tensor &measures) {
 	Tensor indexes = decimated.isfinite ().sum(1).nonzero ().squeeze ();
 
 	_measures = decimated.index ({indexes});
+	_initialized = true;
 
 	return _measures;
 }

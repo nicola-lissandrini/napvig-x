@@ -44,11 +44,13 @@ public:
 	torch::Tensor gradient (const torch::Tensor &p) const;
 	float distToObstacles(const torch::Tensor &p) const;
 
-	bool invalid () const;
+	bool isEmpty () const;
+	bool isInitialized() const;
 	torch::Tensor setMeasures (const torch::Tensor &measures);
 	void setParams (const Params &params);
 
 	DEF_SHARED(Landscape);
+
 
 private:
 	torch::Tensor peak (const torch::Tensor &v) const;
@@ -59,6 +61,7 @@ private:
 	float computeSmoothGain () const;
 
 private:
+	bool _initialized;
 	Smoother::Fcn _valueLambda;
 	Smoother::Fcn _gradientLambda;
 	Smoother::Ptr _smoother;

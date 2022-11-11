@@ -10,6 +10,7 @@
 #include "std_msgs/Float32MultiArray.h"
 #include <geometry_msgs/PoseStamped.h>
 #include <geometry_msgs/Pose2D.h>
+#include <signal.h>
 
 using namespace std;
 using namespace nlib;
@@ -25,6 +26,7 @@ NapvigNode::NapvigNode(int &argc, char **argv, const std::string &name, uint32_t
 	_odomChannel = sources()->declareSource<Pose2> ("odom_source");
 	_clockChannel = sources()->declareSource<> ("clock_source");
 	_targetChannel = sources()->declareSource<Pose2> ("target_source");
+	_abortChannel = sources()->declareSource<> ("abort_source");
 
 	sinks()->declareSink ("publish_tensor", &NapvigNode::publishTensor, this);
 	sinks()->declareSink ("publish_pose", &NapvigNode::publishPose, this);
@@ -131,14 +133,29 @@ void NapvigNode::publishCommand (const torch::Tensor &command) {
 	publish ("command", commandMsg);
 }
 
+void NapvigNode::abort() {
+	sources()->callSource (_abortChannel);
+}
+
 void NapvigNode::onSynchronousClock (const ros::TimerEvent &timeEvent)
 {
 	sources()->callSource (_clockChannel);
 }
 
+NapvigNode *nnPtr;
+
+void onInterrupt (int sig) {
+	nnPtr->abort ();
+	exit (sig);
+}
+
 int main (int argc, char *argv[])
 {
-	NapvigNode nn(argc, argv, "napvig");
+	nnPtr = new NapvigNode (argc, argv, "napvig");
 
-	return nn.spin ();
+	signal (SIGINT, onInterrupt);
+	signal (SIGTERM, onInterrupt);
+	signal (SIGKILL, onInterrupt);
+
+	return nnPtr->spin ();
 }
