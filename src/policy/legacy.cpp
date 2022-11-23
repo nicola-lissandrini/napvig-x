@@ -7,7 +7,7 @@ using namespace lietorch;
 static const torch::Tensor haltCommand = torch::tensor ({0, 0}, kFloat);
 
 Policy::Result LegacyPolicy::followPolicy (const State &initialState) {
-	boost::optional<Tensor> napvigResult = _napvig->compute (initialState);
+	std::optional<Tensor> napvigResult = _napvig->compute (initialState);
 
 	//_history = torch::cat ({napvigResult->unsqueeze(0), initialState.search.unsqueeze(0)}, 1);
 
