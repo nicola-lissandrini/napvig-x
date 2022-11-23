@@ -27,7 +27,7 @@ public:
 					const Landscape::Params &landscapeParams);
 	torch::Tensor setMeasures(const torch::Tensor &measures);
 
-	boost::optional<torch::Tensor> compute (const State &initialization) const;
+	std::optional<torch::Tensor> compute (const State &initialization) const;
 	bool collides (const torch::Tensor &sample);
 
 	torch::Tensor debugLandscapeValues (const torch::Tensor &grid) const;

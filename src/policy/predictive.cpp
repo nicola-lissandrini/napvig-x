@@ -106,7 +106,7 @@ Tensor PredictivePolicy<_Predictor, _Terminator>::predict (const State &initialS
 {
 	Tensor trajectory = initialState.position.unsqueeze (0);
 	Tensor searchHistory = torch::empty ({0, 2}, kFloat);
-	boost::optional<Tensor> next = initialState.position;
+	std::optional<Tensor> next = initialState.position;
 
 	_predictor.reset (initialState);
 	_terminator.reset ();

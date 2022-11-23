@@ -73,11 +73,11 @@ Tensor Napvig::stepAhead (const State &x0) const {
 	return x0.position + _params.stepAheadSize * x0.search;
 }
 
-boost::optional<Tensor> Napvig::compute (const State &initialization) const {
+std::optional<Tensor> Napvig::compute (const State &initialization) const {
 	Tensor xStep;
 
 	if (!_landscape.isInitialized ())
-		return boost::none;
+		return std::nullopt;
 
 	xStep = stepAhead (initialization);
 
